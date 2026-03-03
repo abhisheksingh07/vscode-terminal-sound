@@ -8,6 +8,14 @@
     "name": "Abhishek Singh"
   },
   "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abhisheksingh07/vscode-terminal-sound"
+  },
+  "bugs": {
+    "url": "https://github.com/abhisheksingh07/vscode-terminal-sound/issues"
+  },
+  "homepage": "https://github.com/abhisheksingh07/vscode-terminal-sound#readme",
   "keywords": [
     "sound",
     "terminal",
