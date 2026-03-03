@@ -1,0 +1,91 @@
+{
+  "name": "playsoundextension",
+  "displayName": "Play Sound on Terminal Error",
+  "version": "1.0.0",
+  "description": "Plays a sound whenever a terminal command fails. Supports git, docker, linux, node, npm and any shell command. Fully customizable sounds.",
+  "publisher": "playsound-dev",
+  "author": {
+    "name": "Abhishek Singh"
+  },
+  "icon": "icon.png",
+  "keywords": [
+    "sound",
+    "terminal",
+    "error",
+    "notification",
+    "git",
+    "docker"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "license": "MIT",
+  "main": "out/extension.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "tsc",
+    "package": "vsce package"
+  },
+  "engines": {
+    "vscode": "^1.109.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "playsoundextension.selectErrorSound",
+        "title": "PlaySound: Select Error Sound"
+      },
+      {
+        "command": "playsoundextension.selectSuccessSound",
+        "title": "PlaySound: Select Success Sound"
+      },
+      {
+        "command": "playsoundextension.openErrorFolder",
+        "title": "PlaySound: Open Error Sounds Folder"
+      },
+      {
+        "command": "playsoundextension.openSuccessFolder",
+        "title": "PlaySound: Open Success Sounds Folder"
+      },
+      {
+        "command": "playsoundextension.testErrorSound",
+        "title": "PlaySound: Test Error Sound"
+      },
+      {
+        "command": "playsoundextension.testSuccessSound",
+        "title": "PlaySound: Test Success Sound"
+      }
+    ],
+    "configuration": {
+      "title": "Play Sound on Terminal Error",
+      "properties": {
+        "playsoundextension.volume": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Playback volume percentage (1-100)."
+        },
+        "playsoundextension.cooldownSeconds": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 30,
+          "description": "Minimum seconds between sounds to prevent rapid repeated playback."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^16.18.126",
+    "@types/vscode": "^1.109.0",
+    "@vscode/vsce": "^3.7.1",
+    "typescript": "^4.9.5"
+  },
+  "dependencies": {
+    "play-sound": "^1.1.6"
+  }
+}
