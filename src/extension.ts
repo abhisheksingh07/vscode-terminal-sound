@@ -60,41 +60,55 @@ async function commandExists(cmd: string): Promise<boolean> {
   }
 }
 
-// ── Check which audio backend is available ────────────────────────────────────
-async function checkAudioBackend(): Promise<string | null> {
-  if (platform === "darwin") {
-    return "afplay"; // built-in on every macOS — never needs installing
-  }
-  if (platform === "win32") {
-    return "powershell"; // always available on Windows
-  }
-  // Linux — try each player in priority order
-  for (const player of ["ffplay", "aplay", "paplay", "mpg123", "mpv", "cvlc", "mplayer"]) {
+// ── Check audio backend capability ───────────────────────────────────────────
+// Returns: 'mp3-capable' | 'pcm-only' | null
+//   mp3-capable — at least one player that decodes MP3/OGG (ffplay, mpg123, mpv…)
+//   pcm-only    — only aplay/paplay are present; fine for .wav, DISTORTS .mp3/.ogg
+//   null        — nothing at all
+async function checkAudioBackend(): Promise<"mp3-capable" | "pcm-only" | null> {
+  if (platform === "darwin") { return "mp3-capable"; } // afplay built-in
+  if (platform === "win32")  { return "mp3-capable"; } // PowerShell MediaPlayer built-in
+
+  // MP3-decoding players (proper codec support)
+  for (const player of ["mpg123", "ffplay", "mpv", "cvlc", "mplayer"]) {
     if (await commandExists(player)) {
-      return player;
+      return "mp3-capable";
+    }
+  }
+  // PCM-only players (can play WAV, will DISTORT MP3/OGG)
+  for (const player of ["aplay", "paplay"]) {
+    if (await commandExists(player)) {
+      return "pcm-only";
     }
   }
   return null;
 }
 
-// ── One-time install suggestion if no audio backend is found (Linux only) ─────
+// ── One-time install suggestion (Linux only) ─────────────────────────────────
 async function showInstallSuggestion(context: vscode.ExtensionContext): Promise<void> {
-  // macOS and Windows always have a backend — only Linux might be missing one
-  if (platform !== "linux") {
-    return;
-  }
+  if (platform !== "linux") { return; }
+
   const alreadyShown = context.globalState.get<boolean>("audioBackendWarningShown", false);
-  if (alreadyShown) {
-    return;
-  }
+  if (alreadyShown) { return; }
 
   const backend = await checkAudioBackend();
-  if (backend) {
-    return; // at least one player found — nothing to do
-  }
+
+  // Check if selected sounds are non-WAV (MP3/OGG need a decoding player)
+  const errorFile   = resolveSelectedSoundPath("error");
+  const successFile = resolveSelectedSoundPath("success");
+  const hasNonWav   = [errorFile, successFile].some(
+    (f) => f && path.extname(f).toLowerCase() !== ".wav",
+  );
+
+  const needsDecoder = backend === null || (backend === "pcm-only" && hasNonWav);
+  if (!needsDecoder) { return; }
+
+  const warningMsg = backend === "pcm-only"
+    ? "⚠️ PlaySound: Your sound files are MP3/OGG but only aplay/paplay are installed — they will sound distorted. Install an MP3-capable player:"
+    : "🔇 PlaySound: No audio player found on your system. Install one to enable sound alerts.";
 
   const selection = await vscode.window.showWarningMessage(
-    "🔇 PlaySound: No audio player found on your system. Install one to enable sound alerts.",
+    warningMsg,
     "Install ffmpeg (Recommended)",
     "Install mpg123 (Lightweight)",
     "Install mpv",
@@ -173,16 +187,29 @@ function buildPlayCommand(soundFile: string, volume: number): string {
     );
   }
 
-  // Linux — try players in order, stop at first success
-  return (
-    `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${soundFile}" 2>/dev/null` +
-    ` || mpg123 -q "${soundFile}" 2>/dev/null` +
-    ` || aplay "${soundFile}" 2>/dev/null` +
-    ` || paplay --volume=${Math.round((volume / 100) * 65536)} "${soundFile}" 2>/dev/null` +
+  // Linux — MP3-capable players first; aplay/paplay only added for WAV files
+  const ext = path.extname(soundFile).toLowerCase();
+  const isWav = ext === ".wav";
+
+  // Decoding chain: handles MP3, WAV, OGG without distortion
+  const decodingChain =
+    `mpg123 -q "${soundFile}" 2>/dev/null` +           // best for MP3, lightweight
+    ` || ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${soundFile}" 2>/dev/null` +
     ` || mpv --no-video --really-quiet "${soundFile}" 2>/dev/null` +
     ` || cvlc --play-and-exit --quiet "${soundFile}" 2>/dev/null` +
-    ` || mplayer -really-quiet "${soundFile}" 2>/dev/null`
-  );
+    ` || mplayer -really-quiet "${soundFile}" 2>/dev/null`;
+
+  if (isWav) {
+    // WAV: aplay/paplay are perfect — use them first, decoding chain as fallback
+    return (
+      `aplay "${soundFile}" 2>/dev/null` +
+      ` || paplay "${soundFile}" 2>/dev/null` +
+      ` || ${decodingChain}`
+    );
+  }
+
+  // MP3/OGG: skip aplay/paplay entirely — they CANNOT decode compressed audio
+  return decodingChain;
 }
 
 // ── Show QuickPick to let user choose a sound from the folder ─────────────────
@@ -326,17 +353,25 @@ function writeUnixSetupScript(errorFile: string, successFile: string, volume: nu
       ? `afplay -v ${volFloat} "${successFile}" &`
       : ": # success sound disabled";
   } else {
-    // Linux: fallback chain ffplay → mpg123 → aplay
-    playErrorCmd = errorFile
-      ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${errorFile}" >/dev/null 2>&1 ||` +
-        ` mpg123 -q "${errorFile}" >/dev/null 2>&1 ||` +
-        ` aplay "${errorFile}" >/dev/null 2>&1 &`
-      : ": # error sound disabled";
-    playSuccessCmd = successFile
-      ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${successFile}" >/dev/null 2>&1 ||` +
-        ` mpg123 -q "${successFile}" >/dev/null 2>&1 ||` +
-        ` aplay "${successFile}" >/dev/null 2>&1 &`
-      : ": # success sound disabled";
+    // Linux: MP3-capable chain first; aplay/paplay only for WAV files
+    const buildLinuxCmd = (file: string): string => {
+      const ext = path.extname(file).toLowerCase();
+      const isWav = ext === ".wav";
+
+      const decodingChain =
+        `mpg123 -q "${file}" >/dev/null 2>&1` +
+        ` || ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${file}" >/dev/null 2>&1` +
+        ` || mpv --no-video --really-quiet "${file}" >/dev/null 2>&1` +
+        ` || cvlc --play-and-exit --quiet "${file}" >/dev/null 2>&1` +
+        ` || mplayer -really-quiet "${file}" >/dev/null 2>&1`;
+
+      return isWav
+        ? `aplay "${file}" >/dev/null 2>&1 || paplay "${file}" >/dev/null 2>&1 || ${decodingChain} &`
+        : `${decodingChain} &`; // skip aplay/paplay for MP3/OGG — they distort
+    };
+
+    playErrorCmd   = errorFile   ? buildLinuxCmd(errorFile)   : ": # error sound disabled";
+    playSuccessCmd = successFile ? buildLinuxCmd(successFile) : ": # success sound disabled";
   }
 
   const scriptContent = [

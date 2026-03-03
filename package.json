@@ -1,9 +1,9 @@
 {
   "name": "playsoundextension",
   "displayName": "Play Sound on Terminal Error",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Plays a sound whenever a terminal command fails. Supports git, docker, linux, node, npm and any shell command. Fully customizable sounds.",
-  "publisher": "playsound-dev",
+  "publisher": "Vynode",
   "author": {
     "name": "Abhishek Singh"
   },
