@@ -114,19 +114,25 @@ VS Code Terminal Opens
         ▼
   injectIntoTerminal()
         │
-        │  sources a generated bash script into every terminal
+        │  sources a generated hook script into every terminal
         ▼
-  /tmp/vscode_playsound_setup.sh
+  Linux/macOS: /tmp/vscode_playsound_setup.sh   (bash PROMPT_COMMAND)
+  Windows:     %TEMP%\vscode_playsound_setup.ps1 (PowerShell prompt override)
         │
-        │  registers _playsound_hook() into PROMPT_COMMAND
+        │  hook runs after every command
         ▼
-  Shell runs _playsound_hook() after each command
+  Shell executes hook after each command
         │
-        ├── exit code ≠ 0  →  play error sound (ffplay)
-        └── exit code = 0  →  play success sound (ffplay)
+        ├── exit code ≠ 0  →  play error sound
+        └── exit code = 0  →  play success sound
+
+Audio Backends:
+  macOS   →  afplay (built-in, no install needed)
+  Windows →  PowerShell MediaPlayer (built-in, no install needed)
+  Linux   →  ffplay → mpg123 → aplay → paplay → mpv → cvlc → mplayer
 ```
 
-The extension never intercepts terminal I/O directly — it hooks into bash's `PROMPT_COMMAND`, which runs a function after every command completes. This keeps the integration lightweight and shell-native.
+The extension never intercepts terminal I/O directly — it hooks into the shell's built-in prompt mechanism (`PROMPT_COMMAND` on bash, `prompt` function override on PowerShell). This keeps the integration lightweight and shell-native.
 
 ---
 
@@ -159,13 +165,17 @@ PlaySoundExtension/
 │       ├── openSoundFolder()  # Opens media/error/ or media/success/ in the
 │       │                      # system file manager via xdg-open/nautilus/thunar
 │       │
-│       ├── playSound()        # Executes the sound file via a fallback chain:
-│       │                      #   ffplay → aplay → paplay
-│       │                      # Respects cooldown and volume settings
+       └── buildPlayCommand()     # Returns the OS-specific play command:
+                              #   macOS:   afplay (built-in)
+                              #   Windows: PowerShell MediaPlayer (built-in)
+                              #   Linux:   ffplay → mpg123 → aplay → paplay → mpv chain
+
+       checkAudioBackend()    # Checks which audio player is available on PATH
+       showInstallSuggestion() # Linux only: one-time popup if no player found;
+                              #   auto-detects apt/dnf/pacman, offers Copy or Open Terminal
 │       │
-│       ├── writeSetupScript() # Generates the bash PROMPT_COMMAND hook script
-│       │                      # at /tmp/vscode_playsound_setup.sh with the
-│       │                      # currently selected sound paths baked in
+       ├── writeUnixSetupScript()  # Linux/macOS bash PROMPT_COMMAND hook
+       └── writeWindowsSetupScript() # Windows PowerShell prompt override
 │       │
 │       └── injectIntoTerminal()
 │                              # Sources the setup script into a terminal with
@@ -200,7 +210,11 @@ This survives VS Code restarts without needing any config file.
 
 ```
 Extension activates
-    └─▶ writeSetupScript()  →  writes /tmp/vscode_playsound_setup.sh
+    └─▶ detect platform (linux / darwin / win32)
+    └─▶ writeSetupScript()
+         ├─▶ Unix:    writes /tmp/vscode_playsound_setup.sh  (bash)
+         └─▶ Windows: writes %TEMP%\vscode_playsound_setup.ps1 (PowerShell)
+    └─▶ showInstallSuggestion()  (Linux only: checks for audio players)
     └─▶ inject into existing terminals
     └─▶ subscribe to onDidOpenTerminal  →  inject into future terminals
 
@@ -210,7 +224,7 @@ User picks new sound
     └─▶ re-inject into all open terminals
 
 Extension deactivates
-    └─▶ deletes /tmp/vscode_playsound_setup.sh
+    └─▶ deletes the temp script file
 ```
 
 ---
