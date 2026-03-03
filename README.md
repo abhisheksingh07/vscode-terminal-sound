@@ -25,19 +25,26 @@ Running lengthy build, deploy, or test commands? This extension lets you walk aw
 
 ## Requirements
 
-One of the following audio backends must be installed on your system:
+### macOS
+No installation needed. `afplay` is **built-in** on every macOS system — sounds work immediately.
+
+### Windows
+No installation needed. The extension uses **PowerShell's built-in `MediaPlayer`** (WPF) which supports MP3, WAV, and OGG out of the box.
+
+### Linux
+At least one of the following audio backends must be installed:
 
 | Backend | Debian/Ubuntu | Fedora/RHEL | Arch Linux |
 |---|---|---|---|
 | `ffplay` (recommended) | `sudo apt install ffmpeg` | `sudo dnf install ffmpeg` | `sudo pacman -S ffmpeg` |
+| `mpg123` (lightweight) | `sudo apt install mpg123` | `sudo dnf install mpg123` | `sudo pacman -S mpg123` |
 | `aplay` | `sudo apt install alsa-utils` | `sudo dnf install alsa-utils` | `sudo pacman -S alsa-utils` |
 | `paplay` | `sudo apt install pulseaudio-utils` | `sudo dnf install pulseaudio-utils` | `sudo pacman -S pulseaudio` |
+| `mpv` | `sudo apt install mpv` | `sudo dnf install mpv` | `sudo pacman -S mpv` |
 
-The extension tries each backend in order (`ffplay` → `aplay` → `paplay`) and stops at the first one that works.
+The extension tries each backend in order (`ffplay` → `mpg123` → `aplay` → `paplay` → `mpv` → `cvlc` → `mplayer`) and uses the first one that works.
 
-> **If none are installed**, sounds will silently fail to play. No crash or error notification is shown in VS Code — the failure is logged to the **PlaySoundExtension** output channel (`View → Output → PlaySoundExtension`). Install at least one backend to restore audio.
-
-> **Linux only.** The extension uses `PROMPT_COMMAND` bash hooks and `xdg-open`, which are Linux/macOS shell features.
+> **If none are installed**, a one-time notification will appear at startup with a quick-install button. It auto-detects your package manager (`apt` / `dnf` / `pacman`) and offers to copy the install command or run it directly in the integrated terminal. Failures are also logged to `View → Output → PlaySoundExtension`.
 
 ---
 
