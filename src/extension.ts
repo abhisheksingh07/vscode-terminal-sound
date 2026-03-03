@@ -3,6 +3,9 @@ import * as path from "path";
 import { exec } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 
 let extensionPath = "";
 let setupScriptPath = "";
@@ -11,6 +14,7 @@ let globalState: vscode.Memento;
 let lastPlayedTime = 0; // cooldown tracking
 
 const SOUND_EXTENSIONS = [".mp3", ".wav", ".ogg"];
+const platform = os.platform(); // 'linux' | 'darwin' | 'win32'
 
 // ── Scan a folder and return all playable sound files ────────────────────────
 function scanSoundFolder(folder: string): string[] {
@@ -44,6 +48,141 @@ function resolveSelectedSoundPath(type: "error" | "success"): string {
   }
   const fullPath = path.join(folder, selected);
   return fs.existsSync(fullPath) ? fullPath : "";
+}
+
+// ── Check if a binary exists on PATH ─────────────────────────────────────────
+async function commandExists(cmd: string): Promise<boolean> {
+  try {
+    await execAsync(platform === "win32" ? `where ${cmd}` : `which ${cmd}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ── Check which audio backend is available ────────────────────────────────────
+async function checkAudioBackend(): Promise<string | null> {
+  if (platform === "darwin") {
+    return "afplay"; // built-in on every macOS — never needs installing
+  }
+  if (platform === "win32") {
+    return "powershell"; // always available on Windows
+  }
+  // Linux — try each player in priority order
+  for (const player of ["ffplay", "aplay", "paplay", "mpg123", "mpv", "cvlc", "mplayer"]) {
+    if (await commandExists(player)) {
+      return player;
+    }
+  }
+  return null;
+}
+
+// ── One-time install suggestion if no audio backend is found (Linux only) ─────
+async function showInstallSuggestion(context: vscode.ExtensionContext): Promise<void> {
+  // macOS and Windows always have a backend — only Linux might be missing one
+  if (platform !== "linux") {
+    return;
+  }
+  const alreadyShown = context.globalState.get<boolean>("audioBackendWarningShown", false);
+  if (alreadyShown) {
+    return;
+  }
+
+  const backend = await checkAudioBackend();
+  if (backend) {
+    return; // at least one player found — nothing to do
+  }
+
+  const selection = await vscode.window.showWarningMessage(
+    "🔇 PlaySound: No audio player found on your system. Install one to enable sound alerts.",
+    "Install ffmpeg (Recommended)",
+    "Install mpg123 (Lightweight)",
+    "Install mpv",
+    "Remind Me Later",
+  );
+
+  if (!selection || selection === "Remind Me Later") {
+    return;
+  }
+
+  const cmdsMap: Record<string, { apt: string; dnf: string; pacman: string }> = {
+    "Install ffmpeg (Recommended)": {
+      apt: "sudo apt install ffmpeg",
+      dnf: "sudo dnf install ffmpeg",
+      pacman: "sudo pacman -S ffmpeg",
+    },
+    "Install mpg123 (Lightweight)": {
+      apt: "sudo apt install mpg123",
+      dnf: "sudo dnf install mpg123",
+      pacman: "sudo pacman -S mpg123",
+    },
+    "Install mpv": {
+      apt: "sudo apt install mpv",
+      dnf: "sudo dnf install mpv",
+      pacman: "sudo pacman -S mpv",
+    },
+  };
+
+  const cmds = cmdsMap[selection];
+
+  // Auto-detect the distro package manager
+  let installCmd = cmds.apt; // default to apt
+  if (await commandExists("dnf")) {
+    installCmd = cmds.dnf;
+  } else if (await commandExists("pacman")) {
+    installCmd = cmds.pacman;
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    `Run this command to install: ${installCmd}`,
+    "Copy Command",
+    "Open Terminal & Run",
+  );
+
+  if (action === "Copy Command") {
+    await vscode.env.clipboard.writeText(installCmd);
+    vscode.window.showInformationMessage("✅ Copied to clipboard!");
+  } else if (action === "Open Terminal & Run") {
+    const terminal = vscode.window.createTerminal("PlaySound Setup");
+    terminal.show();
+    terminal.sendText(installCmd);
+  }
+
+  await context.globalState.update("audioBackendWarningShown", true);
+}
+
+// ── Build the platform-specific play command string ───────────────────────────
+function buildPlayCommand(soundFile: string, volume: number): string {
+  if (platform === "darwin") {
+    // afplay is built-in on macOS; volume is 0.0–1.0 (not percent)
+    const volFloat = (volume / 100).toFixed(2);
+    return `afplay -v ${volFloat} "${soundFile}"`;
+  }
+
+  if (platform === "win32") {
+    // PowerShell WPF MediaPlayer — supports MP3, WAV, OGG
+    const fileUri = soundFile.replace(/\\/g, "/");
+    return (
+      `powershell -NoProfile -WindowStyle Hidden -Command ` +
+      `"Add-Type -AssemblyName PresentationCore; ` +
+      `$m=[System.Windows.Media.MediaPlayer]::new(); ` +
+      `$m.Open([uri]::new('file:///${fileUri}')); ` +
+      `$m.Volume=${(volume / 100).toFixed(2)}; ` +
+      `$m.Play(); ` +
+      `Start-Sleep -Milliseconds 5000"`
+    );
+  }
+
+  // Linux — try players in order, stop at first success
+  return (
+    `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${soundFile}" 2>/dev/null` +
+    ` || mpg123 -q "${soundFile}" 2>/dev/null` +
+    ` || aplay "${soundFile}" 2>/dev/null` +
+    ` || paplay --volume=${Math.round((volume / 100) * 65536)} "${soundFile}" 2>/dev/null` +
+    ` || mpv --no-video --really-quiet "${soundFile}" 2>/dev/null` +
+    ` || cvlc --play-and-exit --quiet "${soundFile}" 2>/dev/null` +
+    ` || mplayer -really-quiet "${soundFile}" 2>/dev/null`
+  );
 }
 
 // ── Show QuickPick to let user choose a sound from the folder ─────────────────
@@ -107,18 +246,26 @@ async function showSoundPicker(type: "error" | "success") {
   }
 }
 
-// ── Open the media folder so user can drop sounds ─────────────────────────────
+// ── Open the media folder so user can drop sounds (cross-platform) ──────────────
 function openSoundFolder(type: "error" | "success") {
   const folder = path.join(extensionPath, "media", type);
-  exec(
-    `xdg-open "${folder}" 2>/dev/null || nautilus "${folder}" 2>/dev/null || thunar "${folder}" 2>/dev/null`,
-  );
+  let cmd: string;
+
+  if (platform === "win32") {
+    cmd = `explorer "${folder}"`;
+  } else if (platform === "darwin") {
+    cmd = `open "${folder}"`;
+  } else {
+    cmd = `xdg-open "${folder}" 2>/dev/null || nautilus "${folder}" 2>/dev/null || thunar "${folder}" 2>/dev/null`;
+  }
+
+  exec(cmd);
   vscode.window.showInformationMessage(
     `Opened media/${type}/ — drop your .mp3 or .wav files there, then run the select command again.`,
   );
 }
 
-// ── Play a sound file (with cooldown + volume) ───────────────────────────────
+// ── Play a sound file (with cooldown + volume, cross-platform) ───────────────
 function playSound(soundFile: string, label: string, bypassCooldown = false) {
   if (!soundFile || !fs.existsSync(soundFile)) {
     outputChannel.appendLine(`[${label}] No sound file found: ${soundFile}`);
@@ -138,15 +285,9 @@ function playSound(soundFile: string, label: string, bypassCooldown = false) {
   }
   lastPlayedTime = now;
 
-  outputChannel.appendLine(
-    `[${label}] Playing: ${soundFile} (volume: ${volume}%)`,
-  );
-  // ffplay volume: 1.0 = 100%, so divide by 100
-  const vol = (volume / 100).toFixed(2);
-  const cmd =
-    `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${soundFile}" 2>/dev/null` +
-    ` || aplay "${soundFile}" 2>/dev/null` +
-    ` || paplay --volume=${Math.round((volume / 100) * 65536)} "${soundFile}" 2>/dev/null`;
+  const cmd = buildPlayCommand(soundFile, volume);
+  outputChannel.appendLine(`[${label}] Playing: ${soundFile} (volume: ${volume}%, platform: ${platform})`);
+
   exec(cmd, (err) => {
     if (err) {
       outputChannel.appendLine(`[${label}] Playback failed: ${err.message}`);
@@ -156,19 +297,47 @@ function playSound(soundFile: string, label: string, bypassCooldown = false) {
   });
 }
 
-// ── Write PROMPT_COMMAND bash hook to temp file ───────────────────────────────
+// ── Write the terminal hook script (bash for Linux/macOS, PowerShell for Windows) ─
 function writeSetupScript() {
   const errorFile = resolveSelectedSoundPath("error");
   const successFile = resolveSelectedSoundPath("success");
   const config = vscode.workspace.getConfiguration("playsoundextension");
   const volume = Math.max(1, Math.min(100, config.get<number>("volume", 100)));
 
-  const playErrorCmd = errorFile
-    ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${errorFile}" >/dev/null 2>&1 &`
-    : ": # error sound disabled";
-  const playSuccessCmd = successFile
-    ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${successFile}" >/dev/null 2>&1 &`
-    : ": # success sound disabled";
+  if (platform === "win32") {
+    writeWindowsSetupScript(errorFile, successFile, volume);
+  } else {
+    writeUnixSetupScript(errorFile, successFile, volume);
+  }
+}
+
+// ── Unix (Linux + macOS): bash PROMPT_COMMAND hook ───────────────────────────
+function writeUnixSetupScript(errorFile: string, successFile: string, volume: number) {
+  let playErrorCmd: string;
+  let playSuccessCmd: string;
+
+  if (platform === "darwin") {
+    // macOS: afplay is built-in, no external player needed
+    const volFloat = (volume / 100).toFixed(2);
+    playErrorCmd = errorFile
+      ? `afplay -v ${volFloat} "${errorFile}" &`
+      : ": # error sound disabled";
+    playSuccessCmd = successFile
+      ? `afplay -v ${volFloat} "${successFile}" &`
+      : ": # success sound disabled";
+  } else {
+    // Linux: fallback chain ffplay → mpg123 → aplay
+    playErrorCmd = errorFile
+      ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${errorFile}" >/dev/null 2>&1 ||` +
+        ` mpg123 -q "${errorFile}" >/dev/null 2>&1 ||` +
+        ` aplay "${errorFile}" >/dev/null 2>&1 &`
+      : ": # error sound disabled";
+    playSuccessCmd = successFile
+      ? `ffplay -nodisp -autoexit -loglevel quiet -volume ${volume} "${successFile}" >/dev/null 2>&1 ||` +
+        ` mpg123 -q "${successFile}" >/dev/null 2>&1 ||` +
+        ` aplay "${successFile}" >/dev/null 2>&1 &`
+      : ": # success sound disabled";
+  }
 
   const scriptContent = [
     "#!/usr/bin/env bash",
@@ -190,27 +359,85 @@ function writeSetupScript() {
 
   fs.writeFileSync(setupScriptPath, scriptContent, { mode: 0o755 });
   outputChannel.appendLine(
-    `[Setup] Script updated — error: ${errorFile || "none"}, success: ${successFile || "none"}`,
+    `[Setup] Bash script updated — error: ${errorFile || "none"}, success: ${successFile || "none"}`,
   );
 }
 
-// ── Inject hook into a terminal ───────────────────────────────────────────────
+// ── Windows: PowerShell prompt hook ──────────────────────────────────────────
+function writeWindowsSetupScript(errorFile: string, successFile: string, volume: number) {
+  const volFloat = (volume / 100).toFixed(2);
+
+  const buildPSPlayCmd = (file: string): string => {
+    const uri = file.replace(/\\/g, "/");
+    return (
+      `Start-Job {` +
+      ` Add-Type -AssemblyName PresentationCore;` +
+      ` $m=[System.Windows.Media.MediaPlayer]::new();` +
+      ` $m.Open([uri]::new('file:///${uri}'));` +
+      ` $m.Volume=${volFloat};` +
+      ` $m.Play();` +
+      ` Start-Sleep 5 } | Out-Null`
+    );
+  };
+
+  const scriptContent = [
+    "# Auto-generated by PlaySoundExtension — do not edit",
+    "function global:_PlaySound_Hook {",
+    "    $exitCode = $LASTEXITCODE",
+    `    if ($exitCode -ne 0 -and '${errorFile}') {`,
+    errorFile
+      ? `        ${buildPSPlayCmd(errorFile)}`
+      : "        # error sound disabled",
+    `    } elseif ($global:_PS_Initialized -and '${successFile}') {`,
+    successFile
+      ? `        ${buildPSPlayCmd(successFile)}`
+      : "        # success sound disabled",
+    "    }",
+    "    $global:_PS_Initialized = $true",
+    "    $LASTEXITCODE = $exitCode",
+    "}",
+    "$__existingPrompt = if (Get-Command prompt -ErrorAction SilentlyContinue) { ${function:prompt}.ToString() } else { '' }",
+    "function global:prompt {",
+    "    _PlaySound_Hook",
+    "    if ($__existingPrompt) { & ([scriptblock]::Create($__existingPrompt)) }",
+    "    else { \"PS $($executionContext.SessionState.Path.CurrentLocation)$('>' * ($nestedPromptLevel + 1)) \" }",
+    "}",
+  ].join("\n");
+
+  fs.writeFileSync(setupScriptPath, scriptContent);
+  outputChannel.appendLine(
+    `[Setup] PowerShell script updated — error: ${errorFile || "none"}, success: ${successFile || "none"}`,
+  );
+}
+
+// ── Inject hook into a terminal (platform-aware) ─────────────────────────────
 function injectIntoTerminal(terminal: vscode.Terminal) {
   setTimeout(() => {
-    terminal.sendText(`source "${setupScriptPath}" && printf '\\r\\033[K'`);
+    if (platform === "win32") {
+      // PowerShell: dot-source the .ps1 file
+      terminal.sendText(`. "${setupScriptPath}"`);
+    } else {
+      // Linux / macOS: source the bash script and clear the injected line
+      terminal.sendText(`source "${setupScriptPath}" && printf '\\r\\033[K'`);
+    }
     outputChannel.appendLine(`[Terminal] Hook injected into: ${terminal.name}`);
   }, 500);
 }
 
 // ── ACTIVATE ──────────────────────────────────────────────────────────────────
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel("PlaySoundExtension");
-  outputChannel.appendLine("PlaySoundExtension is now active!");
+  outputChannel.appendLine(`PlaySoundExtension is now active! (platform: ${platform})`);
   outputChannel.show(true);
 
   extensionPath = context.extensionPath;
   globalState = context.globalState;
-  setupScriptPath = path.join(os.tmpdir(), "vscode_playsound_setup.sh");
+
+  // Platform-specific temp script extension
+  const scriptName = platform === "win32"
+    ? "vscode_playsound_setup.ps1"
+    : "vscode_playsound_setup.sh";
+  setupScriptPath = path.join(os.tmpdir(), scriptName);
 
   // Set defaults if first run (error-1.mp3, success disabled)
   if (!getSelectedSound("error")) {
@@ -218,6 +445,9 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   writeSetupScript();
+
+  // Check audio backend and show install suggestion if needed (Linux only)
+  await showInstallSuggestion(context);
 
   // Inject into already-open terminals
   vscode.window.terminals.forEach(injectIntoTerminal);
