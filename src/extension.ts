@@ -84,6 +84,29 @@ async function checkAudioBackend(): Promise<"mp3-capable" | "pcm-only" | null> {
   return null;
 }
 
+// ── Swap MP3/OGG selection to its .wav counterpart if one exists ─────────────
+// Returns true if a swap was made
+async function autoSwapToWav(type: "error" | "success"): Promise<boolean> {
+  const selected = getSelectedSound(type);
+  if (!selected) { return false; }
+
+  const ext = path.extname(selected).toLowerCase();
+  if (ext === ".wav") { return false; } // already WAV
+
+  const folder  = path.join(extensionPath, "media", type);
+  const base    = path.basename(selected, ext);
+  const wavName = base + ".wav";
+  const wavPath = path.join(folder, wavName);
+
+  if (!fs.existsSync(wavPath)) { return false; } // no WAV counterpart
+
+  await setSelectedSound(type, wavName);
+  outputChannel.appendLine(
+    `[AutoSwap] No MP3 player found — switched ${type} sound: "${selected}" → "${wavName}"`,
+  );
+  return true;
+}
+
 // ── One-time install suggestion (Linux only) ─────────────────────────────────
 async function showInstallSuggestion(context: vscode.ExtensionContext): Promise<void> {
   if (platform !== "linux") { return; }
@@ -93,7 +116,6 @@ async function showInstallSuggestion(context: vscode.ExtensionContext): Promise<
 
   const backend = await checkAudioBackend();
 
-  // Check if selected sounds are non-WAV (MP3/OGG need a decoding player)
   const errorFile   = resolveSelectedSoundPath("error");
   const successFile = resolveSelectedSoundPath("success");
   const hasNonWav   = [errorFile, successFile].some(
@@ -103,32 +125,58 @@ async function showInstallSuggestion(context: vscode.ExtensionContext): Promise<
   const needsDecoder = backend === null || (backend === "pcm-only" && hasNonWav);
   if (!needsDecoder) { return; }
 
-  const warningMsg = backend === "pcm-only"
-    ? "⚠️ PlaySound: Your sound files are MP3/OGG but only aplay/paplay are installed — they will sound distorted. Install an MP3-capable player:"
-    : "🔇 PlaySound: No audio player found on your system. Install one to enable sound alerts.";
+  // Check if WAV counterparts exist — offer no-install option
+  const hasWavFallback = (["error", "success"] as const).some((t) => {
+    const sel = getSelectedSound(t);
+    if (!sel) { return false; }
+    const ext = path.extname(sel).toLowerCase();
+    if (ext === ".wav") { return false; }
+    const wavPath = path.join(extensionPath, "media", t, path.basename(sel, ext) + ".wav");
+    return fs.existsSync(wavPath);
+  });
 
-  const selection = await vscode.window.showWarningMessage(
-    warningMsg,
-    "Install ffmpeg (Recommended)",
-    "Install mpg123 (Lightweight)",
-    "Install mpv",
-    "Remind Me Later",
-  );
+  const warningMsg = backend === "pcm-only"
+    ? "⚠️ PlaySound: MP3 files need an MP3-capable player (only aplay/paplay found). Install one, or switch to WAV for an instant fix:"
+    : "🔇 PlaySound: No audio player found. Install one, or use WAV files (work with aplay/paplay):";
+
+  const buttons: string[] = [];
+  if (hasWavFallback) { buttons.push("Switch to WAV (no install)"); }
+  buttons.push("Install mpg123 (Recommended)", "Install ffmpeg", "Install mpv", "Remind Me Later");
+
+  const selection = await vscode.window.showWarningMessage(warningMsg, ...buttons);
+
+  if (!selection || selection === "Remind Me Later") { return; }
+
+  if (selection === "Switch to WAV (no install)") {
+    let switched = false;
+    for (const type of ["error", "success"] as const) {
+      if (await autoSwapToWav(type)) { switched = true; }
+    }
+    if (switched) {
+      writeSetupScript();
+      vscode.window.terminals.forEach(injectIntoTerminal);
+      vscode.window.showInformationMessage(
+        "✅ Switched to WAV — sound will work immediately. To use MP3 later, install mpg123: sudo apt install mpg123",
+      );
+    }
+    await context.globalState.update("audioBackendWarningShown", true);
+    return;
+  }
 
   if (!selection || selection === "Remind Me Later") {
     return;
   }
 
   const cmdsMap: Record<string, { apt: string; dnf: string; pacman: string }> = {
-    "Install ffmpeg (Recommended)": {
-      apt: "sudo apt install ffmpeg",
-      dnf: "sudo dnf install ffmpeg",
-      pacman: "sudo pacman -S ffmpeg",
-    },
-    "Install mpg123 (Lightweight)": {
+    "Install mpg123 (Recommended)": {
       apt: "sudo apt install mpg123",
       dnf: "sudo dnf install mpg123",
       pacman: "sudo pacman -S mpg123",
+    },
+    "Install ffmpeg": {
+      apt: "sudo apt install ffmpeg",
+      dnf: "sudo dnf install ffmpeg",
+      pacman: "sudo pacman -S ffmpeg",
     },
     "Install mpv": {
       apt: "sudo apt install mpv",
@@ -463,7 +511,7 @@ function injectIntoTerminal(terminal: vscode.Terminal) {
 export async function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel("PlaySoundExtension");
   outputChannel.appendLine(`PlaySoundExtension is now active! (platform: ${platform})`);
-  outputChannel.show(true);
+  // Don't auto-show the output panel — user can open it via View → Output if needed
 
   extensionPath = context.extensionPath;
   globalState = context.globalState;
@@ -474,15 +522,43 @@ export async function activate(context: vscode.ExtensionContext) {
     : "vscode_playsound_setup.sh";
   setupScriptPath = path.join(os.tmpdir(), scriptName);
 
-  // Set defaults if first run (error-1.mp3, success disabled)
+  // Set defaults if first run:
+  // Prefer .wav when no MP3-capable player detected (avoids distortion on Linux)
   if (!getSelectedSound("error")) {
-    context.globalState.update("playsound.selected.error", "error-1.mp3");
+    const backend  = platform === "linux" ? await checkAudioBackend() : "mp3-capable";
+    const allFiles = scanSoundFolder(path.join(context.extensionPath, "media", "error"));
+    const wavFiles = allFiles.filter((f) => path.extname(f).toLowerCase() === ".wav");
+    const preferred = (backend !== "mp3-capable" && wavFiles.length > 0) ? wavFiles[0] : allFiles[0];
+    if (preferred) {
+      context.globalState.update("playsound.selected.error", preferred);
+    }
   }
 
   writeSetupScript();
 
-  // Check audio backend and show install suggestion if needed (Linux only)
-  await showInstallSuggestion(context);
+  // Background: auto-swap any existing MP3 selections → WAV if no MP3 decoder,
+  // or show install suggestion. Runs after commands register so UI is unblocked.
+  (async () => {
+    if (platform === "linux") {
+      const backend = await checkAudioBackend();
+      if (backend !== "mp3-capable") {
+        let swapped = false;
+        for (const type of ["error", "success"] as const) {
+          if (await autoSwapToWav(type)) { swapped = true; }
+        }
+        if (swapped) {
+          writeSetupScript();
+          vscode.window.terminals.forEach(injectIntoTerminal);
+          vscode.window.showInformationMessage(
+            "✅ PlaySound: Switched to WAV — sounds will play correctly now. " +
+            "To use MP3, install mpg123: sudo apt install mpg123",
+          );
+          return; // skip further popup — already fixed silently
+        }
+      }
+    }
+    showInstallSuggestion(context);
+  })();
 
   // Inject into already-open terminals
   vscode.window.terminals.forEach(injectIntoTerminal);

@@ -34,17 +34,41 @@ No installation needed. The extension uses **PowerShell's built-in `MediaPlayer`
 ### Linux
 At least one of the following audio backends must be installed:
 
-| Backend | Debian/Ubuntu | Fedora/RHEL | Arch Linux |
-|---|---|---|---|
-| `ffplay` (recommended) | `sudo apt install ffmpeg` | `sudo dnf install ffmpeg` | `sudo pacman -S ffmpeg` |
-| `mpg123` (lightweight) | `sudo apt install mpg123` | `sudo dnf install mpg123` | `sudo pacman -S mpg123` |
-| `aplay` | `sudo apt install alsa-utils` | `sudo dnf install alsa-utils` | `sudo pacman -S alsa-utils` |
-| `paplay` | `sudo apt install pulseaudio-utils` | `sudo dnf install pulseaudio-utils` | `sudo pacman -S pulseaudio` |
-| `mpv` | `sudo apt install mpv` | `sudo dnf install mpv` | `sudo pacman -S mpv` |
+| Backend | Plays MP3/OGG? | Plays WAV? | Debian/Ubuntu | Fedora/RHEL | Arch Linux |
+|---|---|---|---|---|---|
+| `mpg123` ✅ recommended | ✅ Yes | ✅ Yes | `sudo apt install mpg123` | `sudo dnf install mpg123` | `sudo pacman -S mpg123` |
+| `ffplay` | ✅ Yes | ✅ Yes | `sudo apt install ffmpeg` | `sudo dnf install ffmpeg` | `sudo pacman -S ffmpeg` |
+| `mpv` | ✅ Yes | ✅ Yes | `sudo apt install mpv` | `sudo dnf install mpv` | `sudo pacman -S mpv` |
+| `aplay` (pre-installed) | ❌ No — distorts MP3 | ✅ Yes | pre-installed | pre-installed | `sudo pacman -S alsa-utils` |
+| `paplay` (pre-installed) | ❌ No — distorts MP3 | ✅ Yes | pre-installed | pre-installed | `sudo pacman -S pulseaudio` |
 
-The extension tries each backend in order (`ffplay` → `mpg123` → `aplay` → `paplay` → `mpv` → `cvlc` → `mplayer`) and uses the first one that works.
+> **`aplay` and `paplay` are PCM-only players.** They play raw audio bytes, so they work perfectly with `.wav` files but will produce distorted garbage noise when given an `.mp3` or `.ogg` file.
 
-> **If none are installed**, a one-time notification will appear at startup with a quick-install button. It auto-detects your package manager (`apt` / `dnf` / `pacman`) and offers to copy the install command or run it directly in the integrated terminal. Failures are also logged to `View → Output → PlaySoundExtension`.
+The extension tries players in this order: `mpg123` → `ffplay` → `mpv` → `cvlc` → `mplayer`.  
+For `.wav` files, `aplay` / `paplay` are used first (they are more efficient for WAV).
+
+> **If no MP3-capable player is installed**, the extension will **automatically switch your selected MP3 sounds to their `.wav` counterparts** (if a `.wav` file with the same base name exists in the `media/` folder). A notification will appear confirming the switch.
+
+> After installing an MP3 player like `mpg123`, use **PlaySound: Select Error Sound** / **PlaySound: Select Success Sound** to switch back to the MP3 files.
+
+> **If none are installed at all**, a one-time notification will appear at startup with quick-install options (auto-detects `apt`/`dnf`/`pacman`) and the option to switch to WAV files without installing anything.
+
+---
+
+## MP3 vs WAV — Which Should You Use?
+
+| | `.mp3` / `.ogg` | `.wav` |
+|---|---|---|
+| **File size** | Small (50–100 KB) | Large (500 KB–3 MB) |
+| **Quality** | Compressed | Uncompressed / lossless |
+| **Requires MP3 player?** | ✅ Yes (`mpg123`, `ffplay`, `mpv`…) | ❌ No — works with built-in `aplay`/`paplay` |
+| **macOS / Windows** | ✅ Works out of the box | ✅ Works out of the box |
+| **Linux (no extras)** | ⚠️ Needs install | ✅ Works immediately |
+
+**Recommendation for Linux users:**
+- If you have `mpg123`/`ffplay` installed → use `.mp3` (smaller, sounds better)
+- If you don't want to install anything → use `.wav` (just works)
+- **Best practice:** keep both `.mp3` and `.wav` versions with the same base name in `media/` — the extension auto-switches to WAV when needed
 
 ---
 
