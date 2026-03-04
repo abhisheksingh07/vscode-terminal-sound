@@ -1,6 +1,7 @@
-MIT License
+MIT License with Attribution Requirement
 
 Copyright (c) 2026 Abhishek Singh
+https://github.com/abhisheksingh07
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -9,8 +10,23 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+2. ATTRIBUTION REQUIREMENT: Any public use, distribution, publication,
+   presentation, or derivative work based on this Software — including but not
+   limited to VS Code extensions, open-source projects, blog posts, videos,
+   or commercial products — must give clear and visible credit to the original
+   author:
+
+       Original author: Abhishek Singh
+       Source: https://github.com/abhisheksingh07/vscode-terminal-sound
+
+   This credit must appear in at least one of the following places:
+   - The README or documentation of the project
+   - The About / Credits screen of the application
+   - The description of the VS Code extension on the Marketplace
+   - The video description, blog post, or article that references this work
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

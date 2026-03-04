@@ -74,48 +74,92 @@ For `.wav` files, `aplay` / `paplay` are used first (they are more efficient for
 
 ## Getting Started
 
-### 1. Add Your Sound Files
+### Step 1 — Add Your Sound Files
 
-Place your `.mp3`, `.wav`, or `.ogg` files into:
+You need to put your audio files into the extension's `media/` folder. There are two ways:
+
+**Option A — Open the folder from inside VS Code (easiest):**
+
+1. Press `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS) to open the Command Palette
+2. Type `PlaySound: Open Error Sounds Folder` → press `Enter`
+3. Your file manager opens — **drag and drop** your `.mp3` or `.wav` files in
+4. Repeat with `PlaySound: Open Success Sounds Folder` for success sounds
+
+**Option B — Navigate manually:**
 
 ```
-media/
-├── error/      ← sounds played on command failure
-└── success/    ← sounds played on command success
+~/.vscode/extensions/vynode.playsoundextension-<version>/media/
+├── error/      ← drop sounds here for command failure
+└── success/    ← drop sounds here for command success
 ```
 
-You can also open these folders from the Command Palette:
-- `PlaySound: Open Error Sounds Folder`
-- `PlaySound: Open Success Sounds Folder`
+> Supported formats: `.mp3`, `.wav`, `.ogg`
 
-### 2. Select a Sound
+---
 
-Open the Command Palette (`Ctrl+Shift+P`) and run:
+### Step 2 — Select Which Sound to Play
 
-- `PlaySound: Select Error Sound` — pick which file plays on failure
-- `PlaySound: Select Success Sound` — pick which file plays on success
+After adding files, tell the extension which one to use:
 
-A QuickPick menu will list every sound file found in the respective folder. Choose `None (disabled)` to silence a particular event.
+1. Press `Ctrl+Shift+P` → type `PlaySound: Select Error Sound` → press `Enter`
 
-### 3. Test It
+   ![QuickPick menu appears listing all files in media/error/]
 
-- `PlaySound: Test Error Sound`
-- `PlaySound: Test Success Sound`
+2. Use the **arrow keys** to browse, press `Enter` to select  
+   — A preview of the selected sound plays automatically  
+   — Choose `None (disabled)` to turn off that event
 
-These bypass the cooldown and play the sound immediately.
+3. Repeat: `Ctrl+Shift+P` → `PlaySound: Select Success Sound`
+
+---
+
+### Step 3 — Test Your Sounds
+
+Verify the sounds work before running real commands:
+
+- `Ctrl+Shift+P` → `PlaySound: Test Error Sound` — plays the error sound immediately
+- `Ctrl+Shift+P` → `PlaySound: Test Success Sound` — plays the success sound immediately
+
+These bypass the cooldown timer so you hear the sound right away.
+
+---
+
+### Step 4 — Trigger in the Terminal
+
+Open a terminal (`Ctrl+`` ` ```) and run any command:
+
+```bash
+invalidcommand     # exit code 127 → plays error sound 🔴
+ls                 # exit code 0   → plays success sound 🟢
+git push           # exit 0 or 1   → plays the matching sound
+npm run build      # depends on build result
+```
+
+The hook is injected automatically into every new terminal. If a terminal was open before the extension activated, run:
+```bash
+source /tmp/vscode_playsound_setup.sh
+```
 
 ---
 
 ## Commands
 
-| Command | Description |
+All commands are accessible via the **Command Palette**:
+- **Windows / Linux:** `Ctrl+Shift+P`
+- **macOS:** `Cmd+Shift+P`
+
+Then start typing the command name:
+
+| Command | What It Does |
 |---|---|
-| `PlaySound: Select Error Sound` | Choose the error sound from `media/error/` |
-| `PlaySound: Select Success Sound` | Choose the success sound from `media/success/` |
-| `PlaySound: Open Error Sounds Folder` | Open `media/error/` in the file manager |
-| `PlaySound: Open Success Sounds Folder` | Open `media/success/` in the file manager |
-| `PlaySound: Test Error Sound` | Preview the current error sound |
-| `PlaySound: Test Success Sound` | Preview the current success sound |
+| `PlaySound: Select Error Sound` | Opens a picker listing all files in `media/error/` — choose one, it previews and saves |
+| `PlaySound: Select Success Sound` | Opens a picker listing all files in `media/success/` — choose one, it previews and saves |
+| `PlaySound: Open Error Sounds Folder` | Opens `media/error/` in your file manager so you can drop in new `.mp3`/`.wav` files |
+| `PlaySound: Open Success Sounds Folder` | Opens `media/success/` in your file manager so you can drop in new sound files |
+| `PlaySound: Test Error Sound` | Plays the currently selected error sound immediately (bypasses cooldown) |
+| `PlaySound: Test Success Sound` | Plays the currently selected success sound immediately (bypasses cooldown) |
+
+> **Tip:** After dropping new files into the `media/` folder, run **Select Error/Success Sound** again — the new files will appear in the picker automatically.
 
 ---
 
@@ -276,4 +320,57 @@ vsce publish
 
 ## License
 
-MIT © Abhishek Singh
+This project is licensed under the **MIT License with Attribution Requirement**.
+
+Copyright (c) 2026 **Abhishek Singh** — https://github.com/abhisheksingh07
+
+### Attribution Requirement
+
+If you use, fork, redistribute, or build upon this software in any **public** context — including open-source projects, VS Code extensions, blog posts, videos, or commercial products — you **must** give clear and visible credit to the original author:
+
+```
+Original author: Abhishek Singh
+Source: https://github.com/abhisheksingh07/vscode-terminal-sound
+```
+
+Credit must appear in at least one of:
+- The `README` or documentation of your project
+- The About / Credits section of your application
+- The VS Code Marketplace description (if publishing an extension)
+- The description of the blog post, video, or article referencing this work
+
+### Full License Text
+
+```
+MIT License with Attribution Requirement
+
+Copyright (c) 2026 Abhishek Singh
+https://github.com/abhisheksingh07
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+1. The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+2. ATTRIBUTION REQUIREMENT: Any public use, distribution, publication,
+   presentation, or derivative work based on this Software must give clear
+   and visible credit to the original author:
+
+       Original author: Abhishek Singh
+       Source: https://github.com/abhisheksingh07/vscode-terminal-sound
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+See the full [LICENSE](LICENSE) file for details.
