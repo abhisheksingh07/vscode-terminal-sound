@@ -434,7 +434,7 @@ function writeUnixConfigScript(errorFile: string, successFile: string, volume: n
 
     if (platform === "darwin") {
       const volFloat = (volume / 100).toFixed(2);
-      return `{ afplay -v ${volFloat} "${file}"; } &`;
+      return `{ afplay -v ${volFloat} "${file}"; } & disown;`;
     }
 
     const decodingChain =
@@ -445,8 +445,8 @@ function writeUnixConfigScript(errorFile: string, successFile: string, volume: n
       ` || mplayer -really-quiet "${file}" >/dev/null 2>&1`;
 
     return isWav
-      ? `{ aplay "${file}" >/dev/null 2>&1 || paplay "${file}" >/dev/null 2>&1 || ${decodingChain}; } &`
-      : `{ ${decodingChain}; } &`;
+      ? `{ aplay "${file}" >/dev/null 2>&1 || paplay "${file}" >/dev/null 2>&1 || ${decodingChain}; } & disown;`
+      : `{ ${decodingChain}; } & disown;`;
   };
 
   const lines = [
@@ -540,7 +540,7 @@ async function showWhatsNewIfUpdated(context: vscode.ExtensionContext): Promise<
 
   if (choice === "What's New") {
     outputChannel.appendLine(`\n── What's New in v${current} ─────────────────────────────────────────`);
-    outputChannel.appendLine(`• Terminal is completely silent — no commands ever echoed`);
+    outputChannel.appendLine(`• Terminal is completely silent — no job notifications ever echoed`);
     outputChannel.appendLine(`• Hook added to ~/.bashrc / ~/.zshrc once (like nvm / conda)`);
     outputChannel.appendLine(`• Sound selection only writes config to disk — zero terminal injection`);
     outputChannel.appendLine(`• Persistent storage: scripts survive reboots`);
@@ -830,7 +830,7 @@ export async function activate(context: vscode.ExtensionContext) {
     ),
   );
 
-  outputChannel.appendLine(`PlaySoundExtension v1.2.2 active — platform: ${platform}`);
+  outputChannel.appendLine(`PlaySoundExtension v1.2.3 active — platform: ${platform}`);
   outputChannel.appendLine(`Open View → Output → PlaySoundExtension to see errors only.`);
 }
 
